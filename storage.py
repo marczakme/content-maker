@@ -23,22 +23,6 @@ def write_json(path: str, payload: dict) -> None:
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
-def read_keywords() -> pd.DataFrame:
-    if not os.path.exists(KEYWORDS_PATH):
-        return pd.DataFrame(columns=["phrase", "target_count", "notes"])
-    df = pd.read_csv(KEYWORDS_PATH)
-    for col in ["phrase", "target_count", "notes"]:
-        if col not in df.columns:
-            df[col] = "" if col != "target_count" else 0
-    df["phrase"] = df["phrase"].astype(str).str.strip()
-    df["target_count"] = pd.to_numeric(df["target_count"], errors="coerce").fillna(0).astype(int)
-    df["notes"] = df["notes"].astype(str)
-    df = df[df["phrase"].str.len() > 0].copy()
-    return df.reset_index(drop=True)
-
-def write_keywords(df: pd.DataFrame) -> None:
-    df.to_csv(KEYWORDS_PATH, index=False)
-
 def guidelines_get() -> dict:
     return read_json(GUIDELINES_PATH, {"prompt": ""})
 
@@ -50,3 +34,28 @@ def outline_get() -> dict:
 
 def outline_set(outline: str) -> None:
     write_json(OUTLINE_PATH, {"outline": outline})
+
+# -----------------------
+# Keywords (list only)
+# -----------------------
+
+def read_keywords() -> pd.DataFrame:
+    if not os.path.exists(KEYWORDS_PATH):
+        return pd.DataFrame(columns=["phrase"])
+    df = pd.read_csv(KEYWORDS_PATH)
+    if "phrase" not in df.columns:
+        df["phrase"] = ""
+    df["phrase"] = df["phrase"].astype(str).str.strip()
+    df = df[df["phrase"].str.len() > 0].drop_duplicates(subset=["phrase"]).reset_index(drop=True)
+    return df[["phrase"]]
+
+def write_keywords(df: pd.DataFrame) -> None:
+    if df is None or df.empty:
+        pd.DataFrame(columns=["phrase"]).to_csv(KEYWORDS_PATH, index=False)
+        return
+    if "phrase" not in df.columns:
+        raise ValueError("Keywords CSV must have column: phrase")
+    out = df.copy()
+    out["phrase"] = out["phrase"].astype(str).str.strip()
+    out = out[out["phrase"].str.len() > 0].drop_duplicates(subset=["phrase"]).reset_index(drop=True)
+    out[["phrase"]].to_csv(KEYWORDS_PATH, index=False)
