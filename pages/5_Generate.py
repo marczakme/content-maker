@@ -6,6 +6,7 @@ from datetime import datetime
 from storage import guidelines_get, outline_get, read_keywords, GENERATED_DIR
 from llm_providers import chat_llm
 from html_export import text_to_basic_html
+from keyword_validator import validate_keywords
 
 st.set_page_config(page_title="Generate", layout="wide")
 st.header("5) Generate")
@@ -15,6 +16,7 @@ provider = st.session_state.get("provider", "openai")
 guidelines = guidelines_get().get("prompt", "").strip()
 outline = outline_get().get("outline", "").strip()
 kw_df = read_keywords()
+phrases = kw_df["phrase"].tolist() if not kw_df.empty else []
 
 if not guidelines:
     st.warning("Brak Guidelines. Uzupełnij w zakładce 2) Guidelines.")
@@ -24,7 +26,7 @@ if not outline:
 title = st.text_input("Tytuł artykułu (do H1 w HTML)", placeholder="np. Sterylizator kosmetyczny – jak wybrać?")
 temperature = st.slider("Temperature", 0.0, 0.9, 0.3, 0.05)
 
-kw_block = "\n".join([f"- {r.phrase} (target: {int(r.target_count)})" for r in kw_df.itertuples()]) if not kw_df.empty else "None"
+kw_block = "\n".join([f"- {p}" for p in phrases]) if phrases else "None"
 
 system = "You are an expert SEO content writer. Follow instructions strictly. Output structured text with headings and paragraphs."
 user = f"""
@@ -34,7 +36,7 @@ GUIDELINES (must follow):
 OUTLINE (must follow, include facts):
 {outline if outline else "None"}
 
-KEYWORDS (use with target counts, naturally):
+KEYWORDS (use naturally where appropriate):
 {kw_block}
 
 OUTPUT RULES:
@@ -42,11 +44,13 @@ OUTPUT RULES:
 - Use clear headings that match outline (H2/H3)
 - Use short, readable paragraphs (not one-liners)
 - Do NOT mention that you are an AI
-- Do not add final notes or summary unless outline includes it
+- Do not add final notes unless outline includes it
 - Return plain text with headings marked as "H2: ..." / "H3: ..."
 
 Now write the article.
 """.strip()
+
+run_validation = st.checkbox("Run keyword validator after generation", value=True)
 
 if st.button("Generate article", type="primary", disabled=not (guidelines and outline)):
     with st.spinner(f"Generuję ({provider.upper()})..."):
@@ -73,6 +77,17 @@ if st.button("Generate article", type="primary", disabled=not (guidelines and ou
 
     st.success(f"Zapisano: {path}")
 
+    # ✅ Validator
+    if run_validation and phrases:
+        hits = validate_keywords(text, phrases)
+        report_df = pd.DataFrame([{
+            "phrase": h.phrase,
+            "found": h.found,
+            "count_estimate": h.count,
+        } for h in hits]).sort_values(["found", "count_estimate", "phrase"], ascending=[True, True, True])
+
+        st.session_state.last_keyword_report = report_df
+
 if "last_generated_text" in st.session_state:
     st.subheader("Preview (tekst)")
     st.text_area("Generated text", st.session_state.last_generated_text, height=280)
@@ -86,3 +101,19 @@ if "last_generated_text" in st.session_state:
         file_name=os.path.basename(st.session_state.last_generated_path),
         mime="text/html",
     )
+
+    # ✅ Show validator report
+    if "last_keyword_report" in st.session_state:
+        st.subheader("Keyword validator report (fuzzy, z odmianami)")
+        st.caption(
+            "Uwaga: to jest heurystyczne dopasowanie (prefixy słów + końcówki). "
+            "Daje bardzo dobrą kontrolę obecności fraz, ale nie jest analizą lematów 1:1."
+        )
+        st.dataframe(st.session_state.last_keyword_report, width="stretch")
+
+        st.download_button(
+            "Download keyword report (CSV)",
+            data=st.session_state.last_keyword_report.to_csv(index=False).encode("utf-8"),
+            file_name="keyword_report.csv",
+            mime="text/csv",
+        )
