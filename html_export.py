@@ -1,13 +1,10 @@
 import re
 from datetime import datetime
 
+def escape_html(s: str) -> str:
+    return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
 def text_to_basic_html(text: str, title: str | None = None) -> str:
-    """
-    Very simple formatter:
-    - lines starting with H1:/H2:/H3: become headings
-    - blank lines separate paragraphs
-    - everything else becomes <p>
-    """
     lines = (text or "").splitlines()
     out = []
     if title:
@@ -33,9 +30,9 @@ def text_to_basic_html(text: str, title: str | None = None) -> str:
             flush_paragraph()
             token = m.group(1).upper()
             content = m.group(2).strip()
-            if token in ["#","H1"]:
+            if token in ["#","H1","H2"]:
                 out.append(f"<h2>{escape_html(content)}</h2>")
-            elif token in ["##","H2"]:
+            elif token in ["##","H3"]:
                 out.append(f"<h3>{escape_html(content)}</h3>")
             else:
                 out.append(f"<h4>{escape_html(content)}</h4>")
@@ -43,9 +40,5 @@ def text_to_basic_html(text: str, title: str | None = None) -> str:
             buf.append(line)
 
     flush_paragraph()
-
     meta = f"<!-- generated_at: {datetime.utcnow().isoformat()}Z -->"
     return meta + "\n" + "\n".join(out)
-
-def escape_html(s: str) -> str:
-    return (s or "").replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
